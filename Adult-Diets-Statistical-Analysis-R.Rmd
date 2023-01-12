@@ -1,0 +1,179 @@
+# **Section 1**
+
+```{r setup, message=FALSE}
+library(tidyverse)
+options(width=100)
+```
+
+## Data Preparation
+```{r}
+datafile <- read_csv("adult_diet_data.txt")
+summary(datafile)  #Maximum height is 1636.3 cm which is impossible, possibly a typo. The height data with a boxplot is checked:
+png("boxplot_of_heights.png", width = 700, height = 500) #To save the boxplot as a png
+boxplot(datafile$height, main = "Boxplot of Heights", ylab = "Heights in cm")
+dev.off() #To close the device
+```
+
+```{r}
+(boxplot(datafile$height, main = "Boxplot of Heights", ylab = "Heights in cm")) #To see the output of the boxplot
+```
+
+### Data Distribution
+```{r}
+#To understand the data better, a histogram is plotted, limiting the x-values to be no greater than 250 cm and no less than 120 cm (limitation on 120 cm is added just to see the data clearly and centered, no need to put a condition to delete rows if height < 120).
+(ggplot(data = datafile) + geom_histogram(mapping = aes(x = height), binwidth = 1) + xlim(120, 250) + labs(y = "Count", x = "Height (in cm)", title = "Height Data of the Original Data"))
+
+#The limitation of height <= 250 cm is plausible and likely to weed out the outlier data.
+```
+
+### Removing Outliers
+```{r}
+height.deleting <- which(datafile$height > 250)  #The condition to delete the necessary observations
+datafile.new <- datafile[-height.deleting, ]  #Data without the outlier
+
+#The height column is checked again without the limitations
+ggplot(data = datafile.new) + geom_histogram(mapping = aes(x = height), binwidth = 1) + labs(x = "Height (in cm)", y = "Count", title = "Height Data Without the Outliers")
+#It appears that there are no odd data
+```
+
+### Variable Type Transformation
+```{r}
+str(datafile.new)  #Sex and diet_cond columns are characters instead of categorical variables
+
+#First of all, to be more reader-friendly and pretty, the sex data is changed from "M" to "Male" and "F" to "Female" and the diet plan data is changed from "regular" to "Regular" and from "no_chocolate" to "No Chocolate":
+datafile.new <- datafile.new %>% 
+  mutate(sex = str_replace(sex, "F", "Female")) %>%
+  mutate(sex = str_replace(sex, "M", "Male")) %>%
+  mutate(diet_cond = str_replace(diet_cond, "regular", "Regular")) %>%
+  mutate(diet_cond = str_replace(diet_cond, "no_chocolate", "No_Chocolate"))
+
+#Now, changing the type of variables from character to factors:
+vars.factoral <- c("sex", "diet_cond")
+datafile.new[vars.factoral] <- lapply(datafile.new[vars.factoral], as.factor)
+str(datafile.new)  #Now, all looks fine
+```
+
+### Anomaly Check
+```{r}
+#To understand the data better, separate graphs are created so that the general trends can be observed and whether there are any anomalies
+(ggplot(datafile.new) + geom_histogram(aes(x = start_weight), binwidth = 1) + labs(x = "Starting Weight (in kg)", y = "Count", title = "Starting Weight Data"))
+(ggplot(datafile.new) + geom_histogram(aes(x = end_weight), binwidth = 1) + labs(x = "Ending Weight (in kg)", y = "Count", title = "Ending Weight Data"))
+(ggplot(datafile.new) + geom_histogram(aes(x = age), binwidth = 1) + labs(x = "Age", y = "Count", title = "Age Data"))
+(ggplot(datafile.new) + stat_count(aes(x = sex), width = 0.75) + labs(x = "Sex", y = "Count", title = "Sex Data"))
+(ggplot(datafile.new) + geom_histogram(aes(x = impulsivity), binwidth = 1) + labs(x = "Impulsivity Score", y = "Count", title = "Impulsivity Data"))
+(ggplot(datafile.new) + stat_count(aes(x = diet_cond), width = 0.75) + labs(x = "Diet Plan", y = "Count", title = "Diet Plan Data"))
+(ggplot(datafile.new) + geom_histogram(mapping = aes(x = iq), binwidth = 1) + labs(x = "IQ", y = "Count", title = "IQ Data"))
+```
+
+### Relationships Between Variables
+```{r}
+#The relationship between impulsivity and age is plotted
+(impulsivity.vs.age.plot <- ggplot(data = datafile.new) + geom_jitter(mapping = aes(x = age, y = impulsivity)) + labs(title = "Impulsivity vs. Age", x = "Age", y = "Impulsivity Score") + geom_smooth(data = datafile.new, aes(x = age, y = impulsivity), method = "loess"))
+ggsave("impulsivity_vs_age_plot.png", width = 7, height = 5)
+
+#The relationships between impulsivity and age for each sex are plotted
+(impulsivity.vs.age.plot.based.on.sex <- ggplot(data = datafile.new) + geom_jitter(mapping = aes(x = age, y = impulsivity)) + labs(title = "Relationship Between Impulsivity and Age", x = "Age", y = "Impulsivity Score") + geom_smooth(data = datafile.new, aes(x = age, y = impulsivity, colour = sex), method = "loess") + facet_grid( ~ sex))
+ggsave("impulsivity_vs_age_plot_based_on_sex.png", width = 7, height = 5)
+
+#To compare the loess lines of the sexes more easily
+(impulsivity.vs.age.plot.based.on.sex.one.graph <- ggplot(data = datafile.new) + geom_jitter(mapping = aes(x = age, y = impulsivity)) + labs(title = "Relationship Between Impulsivity and Age", x = "Age", y = "Impulsivity Score") + geom_smooth(data = datafile.new, aes(x = age, y = impulsivity, colour = sex), method = "loess"))
+ggsave("impulsivity_vs_age_plot_based_on_sex_one_graph.png", width = 7, height = 5)
+```
+
+### Feature Extraction
+```{r}
+datafile.new <- datafile.new %>%
+  mutate(Height_in_Metres = height / 100) %>%  #For BMI calculation, height in metres is used
+  mutate(Starting_BMI = start_weight / Height_in_Metres^2) %>%  #The starting BMI is calculated
+  mutate(Post_Diet_BMI = end_weight / Height_in_Metres^2) %>%  #The ending BMI is calculated
+  mutate(Weight_Lost = start_weight - end_weight)  #The weight lost in kgs is calculated
+```
+
+```{r}
+#Data grouped by both sex and diet plan. The means and standard deviations of initial and final BMIs and the weight lost are calculated
+(BMI.and.Weight.Lost.Diet.Cond <- datafile.new %>% 
+  group_by(sex, diet_cond) %>% 
+  summarise(Count = n(), Mean_Starting_BMI = mean(Starting_BMI), SD_Starting_BMI = sd(Starting_BMI), 
+            Mean_Post_Diet_BMI = mean(Post_Diet_BMI), SD_Post_Diet_BMI = sd(Post_Diet_BMI), 
+            Mean_Weight_Lost = mean(Weight_Lost), SD_Weight_Lost = sd(Weight_Lost)))
+```
+
+## Visaulising
+```{r}
+(mean.post.diet.BMI <- datafile.new %>%  #The mean post_diet BMI is calculated
+  summarise(Mean_Post_Diet_BMI=mean(Post_Diet_BMI)))
+
+(post.diet.BMI.distribution.plot <- ggplot(datafile.new, aes(x = Post_Diet_BMI, ..density..)) + 
+    geom_histogram(binwidth = 1) + geom_density() + 
+    geom_vline(data = mean.post.diet.BMI, aes(xintercept = Mean_Post_Diet_BMI), colour = "darkgoldenrod2", size = 1.2) +
+    labs(title = "Post-Diet BMI Distribution", x = "BMI", y = "Density")) + 
+  geom_text(mapping = aes(x = Mean_Post_Diet_BMI, y = 0, label = Mean_Post_Diet_BMI, hjust = -1, vjust = -1, angle = 90), data = mean.post.diet.BMI)
+ggsave("post_diet_BMI_distribution_plot.png", width = 7, height = 5)
+
+(mean.post.diet.BMI.between.sexes <- datafile.new %>%  #The means post_diet BMI between sexes are calculated
+  group_by(diet_cond, sex) %>%
+  summarise(Mean_Post_Diet_BMI=mean(Post_Diet_BMI)))
+
+(post.diet.BMI.distribution.between.sexes.plot <- ggplot(datafile.new, aes(x = Post_Diet_BMI, ..density..)) + 
+    geom_histogram(binwidth = 1) + geom_density() + 
+    facet_grid(diet_cond ~ sex) + 
+    geom_vline(data = mean.post.diet.BMI.between.sexes, aes(xintercept = Mean_Post_Diet_BMI), colour = "darkgoldenrod2", size = 1.2) + labs(title = "Post-Diet BMI Distribution Between Sexes", x = "BMI", y = "Density")) + 
+  geom_text(mapping = aes(x = Mean_Post_Diet_BMI, y = 0, label = Mean_Post_Diet_BMI, hjust = -1, vjust = -1, angle = 90), data = mean.post.diet.BMI.between.sexes)
+ggsave("post_diet_BMI_distribution_between_sexes_plot.png", width = 7, height = 5)
+```
+
+```{r}
+(mean.weight.lost <- datafile.new %>%
+  group_by(diet_cond) %>%
+  summarise(Mean_Weight_Lost=mean(Weight_Lost)))
+
+(visual.comparison.of.means.plot <- ggplot(datafile.new, aes(Weight_Lost, ..density.., fill = diet_cond)) + 
+    geom_histogram(binwidth=1, position = "identity", alpha = 0.5) + 
+    geom_vline(data = mean.weight.lost, aes(xintercept = Mean_Weight_Lost), colour = c("coral4", "deepskyblue4"), size = 1.2) + 
+    labs(x = "Weight Lost (in kg)", y = "Density", fill = "Diet Plan", title = "Comparison of Means of Diet Plans")) + 
+  geom_text(mapping = aes(x = Mean_Weight_Lost, y = 0, label = Mean_Weight_Lost, hjust = -1, vjust = -1, angle = 90), data = mean.weight.lost)
+ggsave("visual_comparison_of_means_plot.png", width = 7, height = 5)
+```
+
+## T-Test
+```{r}
+(t_test <- t.test(Weight_Lost ~ diet_cond, data = datafile.new))
+```
+
+---
+
+# Section 2: Report
+
+The findings in this report are based on the examination of the diet plans that include and do not include chocolate, which will be referred to as "regular diet" and "no chocolate diet", respectively. The data of the participants that had outliers were omitted.
+
+In this study of 400 participants, 126 females and 126 males were on a regular diet while 74 females and 74 males were on a no chocolate diet plan. The data used in this study were heights in cm, starting and ending weights in kg, age, sex, impulsivity scores, dietary plans, and IQ levels of the participants.
+
+Before any calculations, data were examined for outliers. The variable "height" had a maximum data of 1636.3 cm. Since this is a highly unlikely height, a boxplot was created in order to visualise the height distribution to determine a plausible limit for the outliers (Figure 1).
+
+![Figure 1: The Boxplot of Heights](boxplot_of_heights.png)
+
+After examining the boxplot, the height variable was limited to 250 cm and the outliers were removed from the dataset. Subsequently, the data were checked again, and there were no illogical entries.
+
+Following the data cleansing, the relationship between impulsivity and age was inspected (Figure 2). The impulsivity scores remained stable until the age of 45 years; there was a slow decrease between ages 45 and 55 years, and an increase after the age of 55 years.
+
+![Figure 2: The Relationship Between Impulsivity and Age](impulsivity_vs_age_plot.png)
+
+In order to have a comparison between the sexes of the participants concerning the relationship of their impulsivity and age, the data of the participants were grouped accordingly. It was observed that females showed an overall increase in their impulsivity scores (Figure 3). They were less impulsive than males before reaching their 50s, and their impulsivity scores were more stable between the ages of 40 and 60 years. However, after the age of 60 years, females tended to be more impulsive than males. The males had a more stable impulsivity score until the age of 45 whereas there was a slow and steady increase in impulsivity scores of females. Between the ages of 45 and 55 years, the impulsivity scores of the males tended to decrease. After the age of 55 years, their scores increased like those of females, though at a slower pace.
+
+![Figure 3: The Relationship Between Impulsivity and Age Between Sexes](impulsivity_vs_age_plot_based_on_sex_one_graph.png)
+
+In addition to the relationship between impulsivity and age, the effectiveness of the dietary plans was also investigated. The mean data of weight loss shows that both males and females gained weight instead of losing on a regular diet plan compared to those on a no chocolate diet plan. Females on a no chocolate dietary plan lost more weight compared to males on the same diet (mean: 3.58 kgs vs. 2.78 kgs, respectively). Conversely, females on a regular diet gained more weight (mean: 0.56 kgs) than males on a similar diet (mean: 0.21 kgs).
+
+Next, the changes in BMIs were examined. The general mean of post-diet BMIs was found to be 24 (Figure 4). However, the post-diet BMIs of the participants varied according to their dietary plans as well as their sexes (Figure 5). Females, in general, had a larger gap between their post-diet BMI means than males; females with no chocolate diets had a mean of 24.21 while those that included chocolate in their diets had a mean of 26.32. Males, on the other hand, showed a smaller gap with a mean of 21.87 and 22.78 for no chocolate and regular diets respectively. 
+
+![Figure 4: The General Post-Diet BMI Distribution](post_diet_BMI_distribution_plot.png)
+
+![Figure 5: The Post-Diet BMI Distribution According to Sexes and Diet Plans](post_diet_BMI_distribution_between_sexes_plot.png)
+
+The changes in BMIs were in accord with the weight loss: The starting BMI of females on a no chocolate diet plan decreased from a mean of 25.61 BMI to 24.21 and males from 22.77 to 21.87. The gain in weight followed a similar pattern; females on a regular diet had a mean of 26.12 BMI at the start of the study which increased to 26.32 at the end, and males went from 22.69 up to 22.78.
+
+A t-test was conducted to compare the means of weight loss of diet plans. The mean weight loss for the no chocolate diet was 3.18 kilograms while the mean weight loss for the regular diet was a gain of 0.38 kilograms. The mean weight loss was significantly larger for diets with no chocolate, Welch t(275) = 7.08, p < .0001, with a difference of 3.56 kilograms. 
+
+Finally, the distributions of weight losses of the participants on regular and no chocolate diets were plotted (Figure 6). The graph below clearly illustrates that participants on a no chocolate diet lost a higher amount of weight compared to those on a regular diet.
+
+![Figure 6: The Comparison of Means of Diet Plans](visual_comparison_of_means_plot.png)
